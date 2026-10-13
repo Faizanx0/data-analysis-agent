@@ -273,63 +273,62 @@ with tab3:
     else:
         st.info("At least two numeric features are needed for correlation.")
 
+
 # ---------- DYNAMIC QUESTION SUGGESTIONS ----------
 st.subheader("Ask Your Data")
 st.caption(
-    "Suggested questions update automatically based on the uploaded dataset."
+    "Choose a suggested question or type your own."
 )
 
+# Keep a maximum of 6 questions for each type
 suggestions = [
     "How many rows and columns are in the dataset?",
     "Are there any missing values?",
     "How many duplicate rows are there?"
 ]
 
-# Questions for every numeric column
-for col in numeric_cols:
-    suggestions.extend([
-        f"What are the statistics for {col}?",
-        f"What is the average {col}?",
-        f"What is the total {col}?",
-        f"What is the highest {col}?",
-        f"What is the lowest {col}?"
-    ])
+# 1. Statistics: maximum 6 numeric columns
+for col in numeric_cols[:6]:
+    suggestions.append(f"What are the statistics for {col}?")
 
-# Questions for every categorical column
-for col in categorical_cols:
+# 2. Most common values: maximum 6 categorical columns
+for col in categorical_cols[:6]:
     suggestions.append(
         f"What are the most common values in {col}?"
     )
 
-# Grouping questions using actual column names
+# 3. Averages by category: maximum 6 combinations
+group_questions = []
 if numeric_cols and categorical_cols:
-    for num_col in numeric_cols[:3]:
-        for cat_col in categorical_cols[:3]:
-            suggestions.append(
+    for num_col in numeric_cols:
+        for cat_col in categorical_cols:
+            group_questions.append(
                 f"What is the average {num_col} by {cat_col}?"
             )
-            suggestions.append(
-                f"What is the total {num_col} by {cat_col}?"
-            )
 
-# Correlation questions
-if len(numeric_cols) >= 2:
-    suggestions.append(
-        f"What is the correlation between "
-        f"{numeric_cols[0]} and {numeric_cols[1]}?"
-    )
+suggestions.extend(group_questions[:6])
 
-# Make questions unique while preserving order
+# 4. Correlation: maximum 6 unique numeric pairs
+correlation_questions = []
+for i in range(len(numeric_cols)):
+    for j in range(i + 1, len(numeric_cols)):
+        correlation_questions.append(
+            f"What is the correlation between "
+            f"{numeric_cols[i]} and {numeric_cols[j]}?"
+        )
+
+suggestions.extend(correlation_questions[:6])
+
+# Remove duplicates without changing order
 suggestions = list(dict.fromkeys(suggestions))
 
-# Keep the suggestion list manageable for wide datasets
-suggestions = suggestions[:30]
-
-# Show the suggestion buttons in two columns
+# Show questions in two columns
 for start in range(0, len(suggestions), 2):
     button_cols = st.columns(2)
 
-    for offset, suggestion in enumerate(suggestions[start:start + 2]):
+    for offset, suggestion in enumerate(
+        suggestions[start:start + 2]
+    ):
         if button_cols[offset].button(
             suggestion,
             key=f"suggestion_{start}_{offset}",
@@ -340,10 +339,11 @@ for start in range(0, len(suggestions), 2):
 question = st.text_input(
     "Your question",
     key="chosen_question",
-    placeholder="e.g. What is the highest Revenue?"
+    placeholder="Type a question about your dataset..."
 )
 
 analyze = st.button("Analyze", type="primary")
+
 
 # ---------- QUESTION ANSWER ENGINE ----------
 if analyze and question.strip():
