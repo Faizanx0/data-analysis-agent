@@ -75,7 +75,7 @@ with tab1:
         ).dropna()
 
         if not values.empty:
-            fig, ax = plt.subplots(figsize=(8, 4))
+            fig, ax = plt.subplots(figsize=(6, 3))
             ax.hist(values, bins=20, edgecolor="white")
             ax.set_title(f"Distribution of {selected_num}")
             ax.set_xlabel(selected_num)
@@ -124,7 +124,7 @@ with tab2:
         )
 
         if chart_choice == "Pie Chart":
-            fig, ax = plt.subplots(figsize=(7, 5))
+            fig, ax = plt.subplots(figsize=(5, 3))
             ax.pie(
                 counts.values,
                 labels=counts.index,
@@ -134,7 +134,7 @@ with tab2:
             ax.set_title(f"Breakdown of {selected_cat}")
             ax.axis("equal")
         else:
-            fig, ax = plt.subplots(figsize=(8, 4))
+            fig, ax = plt.subplots(figsize=(6, 4))
             counts.sort_values().plot(
                 kind="barh", ax=ax
             )
@@ -219,13 +219,46 @@ if categorical_cols:
 # ---------- ASK YOUR DATA ----------
 st.subheader("Ask Your Data")
 
-st.caption(
-    "Try questions about statistics, missing values, "
-    "common categories, or correlations."
-)
+suggestions = [
+    "How many rows and columns are in the dataset?",
+    "Are there any missing values?",
+]
+
+for col in numeric_cols[:3]:
+    suggestions.append(f"What are the statistics for {col}?")
+
+for col in categorical_cols[:2]:
+    suggestions.append(f"What are the most common values in {col}?")
+
+if len(numeric_cols) >= 2:
+    suggestions.append(
+        f"What is the correlation between {numeric_cols[0]} and {numeric_cols[1]}?"
+    )
+
+if numeric_cols and categorical_cols:
+    suggestions.append(
+        f"What is the average {numeric_cols[0]} by {categorical_cols[0]}?"
+    )
+
+if "chosen_question" not in st.session_state:
+    st.session_state.chosen_question = ""
+
+st.caption("Choose a suggested question or type your own.")
+
+# Compact clickable suggestion buttons
+for start in range(0, len(suggestions), 2):
+    buttons = st.columns(2)
+    for offset, question in enumerate(suggestions[start:start + 2]):
+        if buttons[offset].button(
+            question,
+            key=f"suggestion_{start}_{offset}",
+            use_container_width=True
+        ):
+            st.session_state.chosen_question = question
 
 question = st.text_input(
     "Your question",
+    key="chosen_question",
     placeholder="e.g. What are the statistics for Age?"
 )
 
@@ -250,7 +283,6 @@ if st.button("Analyze", type="primary") and question.strip():
     elif "correlation" in q:
         col_a = find_column(numeric_cols)
         col_b = None
-
         if col_a:
             col_b = find_column(
                 [c for c in numeric_cols if c != col_a]
@@ -263,32 +295,35 @@ if st.button("Analyze", type="primary") and question.strip():
                 f"**{col_b}**: **{result:.3f}**"
             )
         else:
-            st.info(
-                "Mention two numeric feature names in your question."
-            )
+            st.info("Please mention two numeric feature names.")
 
     elif any(word in q for word in [
         "statistics", "average", "mean", "median",
         "minimum", "maximum", "describe"
     ]):
         col = find_column(numeric_cols)
+        group_col = find_column(categorical_cols)
 
-        if col:
-            st.write(f"Statistics for **{col}**")
+        if col and " by " in q and group_col:
+            grouped = data.groupby(
+                group_col, dropna=False
+            )[col].mean().sort_values(ascending=False)
+            st.dataframe(
+                grouped.to_frame("Average"),
+                use_container_width=True
+            )
+        elif col:
             st.dataframe(
                 data[col].describe().to_frame().round(2),
                 use_container_width=True
             )
         else:
-            st.info(
-                "Please include a numeric feature name, such as Age."
-            )
+            st.info("Please include a numeric feature name.")
 
     elif any(word in q for word in [
         "most common", "common values", "frequency"
     ]):
         col = find_column(categorical_cols)
-
         if col:
             st.dataframe(
                 data[col].value_counts(dropna=False)
@@ -296,23 +331,22 @@ if st.button("Analyze", type="primary") and question.strip():
                 use_container_width=True
             )
         else:
-            st.info(
-                "Please include a categorical feature name."
-            )
+            st.info("Please include a categorical feature name.")
 
     elif any(word in q for word in [
         "rows", "columns", "overview"
     ]):
         st.write(
-            f"This dataset contains {len(data):,} rows and "
-            f"{len(data.columns)} columns."
+            f"This dataset contains {len(data):,} rows "
+            f"and {len(data.columns)} columns."
         )
 
     else:
         st.info(
-            "Try a supported question about statistics, "
+            "Try a suggested question or ask about statistics, "
             "missing values, common values, or correlation."
         )
+
 
 # ---------- DOWNLOADS ----------
 st.subheader("Export Results")
