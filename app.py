@@ -3,212 +3,339 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-import seaborn as sns
 
 st.set_page_config(
-    page_title="CSV Data Analysis Agent",
+    page_title="Data Analysis Agent",
     page_icon="📊",
     layout="wide"
 )
 
-st.title("📊 CSV Data Analysis Agent")
-st.write(
-    "Upload a CSV file, explore your data, "
-    "and ask questions about it."
-)
+# ---------- HEADER ----------
+st.title("📊 Data Analysis Agent")
+st.caption("Explore your data. Discover patterns. Get insights.")
 
 uploaded_file = st.file_uploader(
-    "Upload your CSV file",
+    "Upload your dataset",
     type=["csv"]
 )
 
-if uploaded_file is not None:
-    try:
-        data = pd.read_csv(uploaded_file)
+if uploaded_file is None:
+    st.info("Upload a CSV file to begin your analysis.")
+    st.stop()
 
-        st.success("CSV uploaded successfully!")
+try:
+    data = pd.read_csv(uploaded_file)
+except Exception as error:
+    st.error(f"Unable to read this file: {error}")
+    st.stop()
 
-        st.subheader("Dataset Overview")
-        col1, col2, col3 = st.columns(3)
+if data.empty:
+    st.warning("This CSV file has no data to display.")
+    st.stop()
 
-        col1.metric("Rows", data.shape[0])
-        col2.metric("Columns", data.shape[1])
-        col3.metric("Missing Values", int(data.isna().sum().sum()))
+numeric_cols = data.select_dtypes(
+    include="number"
+).columns.tolist()
 
-        st.subheader("Preview")
-        st.dataframe(data.head(20), use_container_width=True)
+categorical_cols = data.select_dtypes(
+    include=["object", "category", "bool"]
+).columns.tolist()
 
-        st.subheader("Column Names")
-        st.write(data.columns.tolist())
+# ---------- SUMMARY CARDS ----------
+st.subheader("Dataset Overview")
 
-        st.subheader("Numeric Summary")
-        numeric_cols = data.select_dtypes(
-            include="number"
-        ).columns.tolist()
+c1, c2, c3, c4 = st.columns(4)
+c1.metric("Total Records", f"{len(data):,}")
+c2.metric("Total Features", len(data.columns))
+c3.metric("Missing Values", f"{int(data.isna().sum().sum()):,}")
+c4.metric("Duplicate Rows", f"{int(data.duplicated().sum()):,}")
 
-        if numeric_cols:
-            st.dataframe(
-                data[numeric_cols].describe().round(2),
-                use_container_width=True
-            )
-        else:
-            st.info("No numeric columns were detected.")
+# ---------- DATA PREVIEW ----------
+with st.expander("View dataset preview"):
+    st.dataframe(data.head(10), use_container_width=True)
 
-        st.subheader("Explore a Numeric Column")
+# ---------- VISUAL ANALYSIS ----------
+st.subheader("Visual Analytics")
 
-        if numeric_cols:
-            selected_column = st.selectbox(
-                "Choose a column",
-                numeric_cols
-            )
+tab1, tab2, tab3 = st.tabs([
+    "Numeric Distribution",
+    "Category Breakdown",
+    "Correlation"
+])
 
-            fig, ax = plt.subplots()
-            ax.hist(
-                data[selected_column].dropna(),
-                bins=20
-            )
-            ax.set_title(f"Distribution of {selected_column}")
-            ax.set_xlabel(selected_column)
-            ax.set_ylabel("Count")
+with tab1:
+    if numeric_cols:
+        selected_num = st.selectbox(
+            "Choose a numeric feature",
+            numeric_cols
+        )
 
+        values = pd.to_numeric(
+            data[selected_num], errors="coerce"
+        ).dropna()
+
+        if not values.empty:
+            fig, ax = plt.subplots(figsize=(8, 4))
+            ax.hist(values, bins=20, edgecolor="white")
+            ax.set_title(f"Distribution of {selected_num}")
+            ax.set_xlabel(selected_num)
+            ax.set_ylabel("Frequency")
+            fig.tight_layout()
             st.pyplot(fig)
             plt.close(fig)
 
-        st.subheader("Suggested Questions")
+            st.caption(
+                f"Average: {values.mean():.2f} · "
+                f"Median: {values.median():.2f} · "
+                f"Minimum: {values.min():.2f} · "
+                f"Maximum: {values.max():.2f}"
+            )
+        else:
+            st.info("This feature has no valid numeric values.")
+    else:
+        st.info("No numeric features are available in this dataset.")
 
-        questions = [
-            "How many rows and columns are in the dataset?",
-            "Are there any missing values?",
-        ]
+with tab2:
+    if categorical_cols:
+        selected_cat = st.selectbox(
+            "Choose a category",
+            categorical_cols
+        )
 
-        for col in numeric_cols[:3]:
-            questions.append(
-                f"What are the statistics for {col}?"
+        top_n = st.slider(
+            "Number of categories to display",
+            min_value=3,
+            max_value=10,
+            value=5
+        )
+
+        counts = (
+            data[selected_cat]
+            .fillna("Missing")
+            .astype(str)
+            .value_counts()
+            .head(top_n)
+        )
+
+        chart_choice = st.radio(
+            "Chart type",
+            ["Pie Chart", "Bar Chart"],
+            horizontal=True
+        )
+
+        if chart_choice == "Pie Chart":
+            fig, ax = plt.subplots(figsize=(7, 5))
+            ax.pie(
+                counts.values,
+                labels=counts.index,
+                autopct="%1.1f%%",
+                startangle=90
+            )
+            ax.set_title(f"Breakdown of {selected_cat}")
+            ax.axis("equal")
+        else:
+            fig, ax = plt.subplots(figsize=(8, 4))
+            counts.sort_values().plot(
+                kind="barh", ax=ax
+            )
+            ax.set_title(f"Most common values in {selected_cat}")
+            ax.set_xlabel("Count")
+            ax.set_ylabel("")
+        
+        fig.tight_layout()
+        st.pyplot(fig)
+        plt.close(fig)
+
+        st.caption(
+            "Charts show the most frequent categories selected above."
+        )
+    else:
+        st.info(
+            "No categorical features are available for a pie chart."
+        )
+
+with tab3:
+    if len(numeric_cols) >= 2:
+        corr = data[numeric_cols].corr()
+
+        fig, ax = plt.subplots(figsize=(8, 5))
+        image = ax.imshow(
+            corr, aspect="auto", vmin=-1, vmax=1
+        )
+        ax.set_xticks(range(len(numeric_cols)))
+        ax.set_yticks(range(len(numeric_cols)))
+        ax.set_xticklabels(
+            numeric_cols, rotation=45, ha="right"
+        )
+        ax.set_yticklabels(numeric_cols)
+        ax.set_title("Numeric Feature Correlations")
+        fig.colorbar(image, ax=ax, label="Correlation")
+        fig.tight_layout()
+        st.pyplot(fig)
+        plt.close(fig)
+    else:
+        st.info(
+            "At least two numeric features are needed for correlation."
+        )
+
+# ---------- AUTOMATIC SUMMARY ----------
+st.subheader("Quick Insights")
+
+if numeric_cols:
+    summary_col = st.selectbox(
+        "Summarize a numeric feature",
+        numeric_cols,
+        key="summary_column"
+    )
+    values = pd.to_numeric(
+        data[summary_col], errors="coerce"
+    ).dropna()
+
+    if not values.empty:
+        st.write(
+            f"**{summary_col}:** average "
+            f"{values.mean():.2f}, median "
+            f"{values.median():.2f}, based on "
+            f"{len(values):,} valid records."
+        )
+
+if categorical_cols:
+    summary_cat = st.selectbox(
+        "Most common category",
+        categorical_cols,
+        key="summary_category"
+    )
+    common = data[summary_cat].value_counts(
+        dropna=False
+    ).head(1)
+
+    if not common.empty:
+        st.write(
+            f"**{summary_cat}:** most frequent value is "
+            f"`{common.index[0]}` "
+            f"({common.iloc[0]:,} records)."
+        )
+
+# ---------- ASK YOUR DATA ----------
+st.subheader("Ask Your Data")
+
+st.caption(
+    "Try questions about statistics, missing values, "
+    "common categories, or correlations."
+)
+
+question = st.text_input(
+    "Your question",
+    placeholder="e.g. What are the statistics for Age?"
+)
+
+if st.button("Analyze", type="primary") and question.strip():
+    q = question.lower().replace("_", " ")
+
+    def find_column(columns):
+        for col in columns:
+            if col.lower().replace("_", " ") in q:
+                return col
+        return None
+
+    if "missing" in q or "null values" in q:
+        report = pd.DataFrame({
+            "Missing Count": data.isna().sum(),
+            "Missing Percentage": (
+                data.isna().mean() * 100
+            ).round(2)
+        }).sort_values("Missing Count", ascending=False)
+        st.dataframe(report, use_container_width=True)
+
+    elif "correlation" in q:
+        col_a = find_column(numeric_cols)
+        col_b = None
+
+        if col_a:
+            col_b = find_column(
+                [c for c in numeric_cols if c != col_a]
             )
 
-        for col in data.select_dtypes(
-            include=["object", "category", "bool"]
-        ).columns[:2]:
-            questions.append(
-                f"What are the most common values in {col}?"
+        if col_a and col_b:
+            result = data[[col_a, col_b]].corr().iloc[0, 1]
+            st.write(
+                f"Correlation between **{col_a}** and "
+                f"**{col_b}**: **{result:.3f}**"
+            )
+        else:
+            st.info(
+                "Mention two numeric feature names in your question."
             )
 
-        for question in questions:
-            st.write("•", question)
+    elif any(word in q for word in [
+        "statistics", "average", "mean", "median",
+        "minimum", "maximum", "describe"
+    ]):
+        col = find_column(numeric_cols)
 
-        st.subheader("Ask Your Dataset")
+        if col:
+            st.write(f"Statistics for **{col}**")
+            st.dataframe(
+                data[col].describe().to_frame().round(2),
+                use_container_width=True
+            )
+        else:
+            st.info(
+                "Please include a numeric feature name, such as Age."
+            )
 
-        user_question = st.text_input(
-            "Enter your question",
-            placeholder="Example: What are the statistics for Age?"
+    elif any(word in q for word in [
+        "most common", "common values", "frequency"
+    ]):
+        col = find_column(categorical_cols)
+
+        if col:
+            st.dataframe(
+                data[col].value_counts(dropna=False)
+                .head(10).to_frame("Count"),
+                use_container_width=True
+            )
+        else:
+            st.info(
+                "Please include a categorical feature name."
+            )
+
+    elif any(word in q for word in [
+        "rows", "columns", "overview"
+    ]):
+        st.write(
+            f"This dataset contains {len(data):,} rows and "
+            f"{len(data.columns)} columns."
         )
 
-        if st.button("Analyze") and user_question:
-            q = user_question.lower()
-
-            if "missing" in q:
-                report = pd.DataFrame({
-                    "Missing Count": data.isna().sum(),
-                    "Missing Percentage": (
-                        data.isna().mean() * 100
-                    ).round(2)
-                })
-
-                st.write("Missing Value Report")
-                st.dataframe(report, use_container_width=True)
-
-            elif any(word in q for word in [
-                "statistics", "average", "mean", "median",
-                "describe", "minimum", "maximum"
-            ]):
-                matched_column = next(
-                    (
-                        c for c in numeric_cols
-                        if c.lower() in q
-                    ),
-                    None
-                )
-
-                if matched_column:
-                    st.write(f"Statistics for {matched_column}")
-                    st.write(
-                        data[matched_column].describe().round(2)
-                    )
-                elif numeric_cols:
-                    st.info(
-                        "Please mention a numeric column name. "
-                        "Available columns: "
-                        + ", ".join(numeric_cols)
-                    )
-                else:
-                    st.info("No numeric columns are available.")
-
-            elif "row" in q or "column" in q or "overview" in q:
-                st.write({
-                    "Rows": data.shape[0],
-                    "Columns": data.shape[1],
-                    "Column names": data.columns.tolist()
-                })
-
-            elif "most common" in q or "common values" in q:
-                categorical_cols = data.select_dtypes(
-                    include=["object", "category", "bool"]
-                ).columns.tolist()
-
-                matched_column = next(
-                    (
-                        c for c in categorical_cols
-                        if c.lower() in q
-                    ),
-                    None
-                )
-
-                if matched_column:
-                    st.write(
-                        data[matched_column]
-                        .value_counts(dropna=False)
-                        .head(10)
-                    )
-                elif categorical_cols:
-                    st.info(
-                        "Please mention a categorical column name: "
-                        + ", ".join(categorical_cols)
-                    )
-                else:
-                    st.info("No categorical columns are available.")
-
-            else:
-                st.info(
-                    "I don't recognize that question yet. "
-                    "Try asking about missing values, statistics, "
-                    "common values, or the dataset overview."
-                )
-
-        st.subheader("Download Data")
-
-        csv_data = data.to_csv(index=False).encode("utf-8")
-
-        st.download_button(
-            "Download CSV",
-            data=csv_data,
-            file_name="analyzed_data.csv",
-            mime="text/csv"
+    else:
+        st.info(
+            "Try a supported question about statistics, "
+            "missing values, common values, or correlation."
         )
 
-        json_data = data.to_json(
-            orient="records",
-            indent=2
-        )
+# ---------- DOWNLOADS ----------
+st.subheader("Export Results")
 
-        st.download_button(
-            "Download JSON",
-            data=json_data,
-            file_name="analyzed_data.json",
-            mime="application/json"
-        )
+left, right = st.columns(2)
 
-    except Exception as error:
-        st.error(f"Could not read this CSV: {error}")
+with left:
+    st.download_button(
+        "Download CSV",
+        data=data.to_csv(index=False).encode("utf-8"),
+        file_name="analyzed_data.csv",
+        mime="text/csv"
+    )
 
-else:
-    st.info("Upload a CSV file to begin your analysis.")
+with right:
+    st.download_button(
+        "Download JSON",
+        data=data.to_json(
+            orient="records", indent=2
+        ).encode("utf-8"),
+        file_name="analyzed_data.json",
+        mime="application/json"
+    )
+
+st.divider()
+st.caption("Data Analysis Agent · Built with Python and Streamlit")
