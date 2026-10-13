@@ -36,9 +36,7 @@ with st.sidebar:
         "Large": 4.5
     }[chart_size]
 
-    st.caption("Choose how large your charts appear.")
-
-# ---------- FILE UPLOAD ----------
+# ---------- UPLOAD DATA ----------
 uploaded_file = st.file_uploader(
     "Upload your dataset",
     type=["csv"]
@@ -58,8 +56,7 @@ if data.empty:
     st.warning("This CSV file has no data to display.")
     st.stop()
 
-# Reset the previous question when a different file is uploaded.
-# The content hash also detects different files with the same name and size.
+# Detect when a different CSV is uploaded
 file_signature = (
     uploaded_file.name,
     uploaded_file.size,
@@ -69,8 +66,6 @@ file_signature = (
 if st.session_state.get("file_signature") != file_signature:
     st.session_state.file_signature = file_signature
     st.session_state.chosen_question = ""
-    st.session_state.last_question = ""
-    st.session_state.analysis_result = None
 
 # ---------- IDENTIFY COLUMN TYPES ----------
 numeric_cols = data.select_dtypes(
@@ -80,23 +75,6 @@ numeric_cols = data.select_dtypes(
 categorical_cols = data.select_dtypes(
     include=["object", "category", "bool"]
 ).columns.tolist()
-
-# Include dates stored as text when they can be parsed reliably.
-date_cols = []
-for col in data.columns:
-    if col in numeric_cols:
-        continue
-
-    if pd.api.types.is_datetime64_any_dtype(data[col]):
-        date_cols.append(col)
-    elif data[col].dtype == "object":
-        non_null = data[col].dropna()
-
-        if len(non_null) > 0:
-            sample = non_null.head(30)
-            parsed = pd.to_datetime(sample, errors="coerce")
-            if parsed.notna().mean() >= 0.8:
-                date_cols.append(col)
 
 # ---------- DATASET OVERVIEW ----------
 st.subheader("Dataset Overview")
@@ -273,37 +251,28 @@ with tab3:
     else:
         st.info("At least two numeric features are needed for correlation.")
 
-
-
 # ---------- DYNAMIC QUESTION SUGGESTIONS ----------
 st.subheader("Ask Your Data")
-st.caption("Choose a suggested question or type your own.")
+st.caption("Choose a suggestion or type your own question.")
 
-# Build suggestions based on the uploaded dataset
 suggestions = [
     "How many rows and columns are in the dataset?",
     "Are there any missing values?"
 ]
 
-# Add a statistics question for a numeric column
 if numeric_cols:
     suggestions.append(
         f"What are the statistics for {numeric_cols[0]}?"
     )
-
-# Add a total or highest-value question
-if numeric_cols:
     suggestions.append(
         f"What is the highest {numeric_cols[0]}?"
     )
 
-# Add a question about the most common category
 if categorical_cols:
     suggestions.append(
         f"What are the most common values in {categorical_cols[0]}?"
     )
 
-# Add a grouping question when both column types exist
 if numeric_cols and categorical_cols:
     suggestions.append(
         f"What is the average {numeric_cols[0]} by {categorical_cols[0]}?"
@@ -313,21 +282,10 @@ elif len(numeric_cols) >= 2:
         f"What is the correlation between {numeric_cols[0]} and {numeric_cols[1]}?"
     )
 
-# Show no more than 6 suggestions
+# Display no more than six unique suggestions
 suggestions = list(dict.fromkeys(suggestions))[:6]
 
-# Clear the selected question when a different CSV is uploaded
-file_signature = (
-    uploaded_file.name,
-    uploaded_file.size,
-    hash(uploaded_file.getvalue())
-)
-
-if st.session_state.get("suggestion_file_signature") != file_signature:
-    st.session_state.suggestion_file_signature = file_signature
-    st.session_state.chosen_question = ""
-
-# Display suggestions as clickable buttons
+# Display clickable suggestions in two columns
 for start in range(0, len(suggestions), 2):
     button_cols = st.columns(2)
 
@@ -339,17 +297,26 @@ for start in range(0, len(suggestions), 2):
         ):
             st.session_state.chosen_question = suggestion
 
+# IMPORTANT: Define question and analyze BEFORE using them below
+question = st.text_input(
+    "Your question",
+    key="chosen_question",
+    placeholder="e.g. What is the highest Revenue?"
+)
+
+analyze = st.button("Analyze", type="primary")
 
 # ---------- QUESTION ANSWER ENGINE ----------
 if analyze and question.strip():
     q = question.lower().replace("_", " ")
-    result_kind = None
-    result_data = None
+
     answer_text = None
     info_text = None
+    result_data = None
+    result_kind = None
 
     def find_column(columns, query):
-        # Match full column names, preferring longer names.
+        """Find a mentioned column, preferring longer column names."""
         normalized_query = query.lower().replace("_", " ")
 
         for col in sorted(columns, key=len, reverse=True):
@@ -359,17 +326,8 @@ if analyze and question.strip():
 
         return None
 
-    # Dataset-level questions
-    if "missing" in q or "null values" in q:
-        result_kind = "missing"
-
-    elif "duplicate" in q:
-        answer_text = (
-            f"This dataset contains **{int(data.duplicated().sum()):,}** "
-            "duplicate rows."
-        )
-
-    elif (
+    # Dataset overview
+    if (
         "rows" in q
         or "columns" in q
         or "overview" in q
@@ -380,16 +338,27 @@ if analyze and question.strip():
             f"and **{len(data.columns)} columns**."
         )
 
-    # Correlation questions
+    # Missing values
+    elif "missing" in q or "null values" in q:
+        result_kind = "missing"
+
+    # Duplicate rows
+    elif "duplicate" in q:
+        answer_text = (
+            f"This dataset contains **{int(data.duplicated().sum()):,}** "
+            "duplicate rows."
+        )
+
+    # Correlation
     elif "correlation" in q:
         col_a = find_column(numeric_cols, q)
         col_b = None
 
         if col_a:
-            remaining_cols = [
-                col for col in numeric_cols if col != col_a
-            ]
-            col_b = find_column(remaining_cols, q)
+            col_b = find_column(
+                [col for col in numeric_cols if col != col_a],
+                q
+            )
 
         if col_a and col_b:
             correlation = data[[col_a, col_b]].corr().iloc[0, 1]
@@ -414,44 +383,40 @@ if analyze and question.strip():
                 )
         else:
             info_text = (
-                "Please select a suggested correlation question or mention "
-                "two numeric column names."
+                "Please mention two numeric column names or choose "
+                "a suggested correlation question."
             )
 
-    # Grouped numeric questions
-    elif " by " in q and (
-        "average" in q
-        or "mean" in q
-        or "total" in q
-        or "sum" in q
+    # Average or total by category
+    elif " by " in q and any(
+        word in q for word in ["average", "mean", "total", "sum"]
     ):
         num_col = find_column(numeric_cols, q)
         cat_col = find_column(categorical_cols, q)
 
         if num_col and cat_col:
-            grouped_data = data.groupby(
-                cat_col,
-                dropna=False
+            grouped = data.groupby(
+                cat_col, dropna=False
             )[num_col]
 
             if "average" in q or "mean" in q:
-                grouped = grouped_data.mean()
+                grouped_result = grouped.mean()
                 label = "Average"
             else:
-                grouped = grouped_data.sum()
+                grouped_result = grouped.sum()
                 label = "Total"
 
             result_data = (
-                grouped.sort_values(ascending=False)
+                grouped_result.sort_values(ascending=False)
                 .reset_index(name=label)
             )
             result_kind = "table"
         else:
             info_text = (
-                "Please include a numeric column and a category column."
+                "Please mention a numeric column and a category column."
             )
 
-    # Numeric-column questions
+    # Numeric statistics and individual values
     elif any(word in q for word in [
         "statistics", "average", "mean", "median",
         "minimum", "maximum", "highest", "lowest",
@@ -466,16 +431,32 @@ if analyze and question.strip():
 
             if values.empty:
                 info_text = f"No valid numeric values were found in {col}."
+
             elif "highest" in q or "maximum" in q:
-                answer_text = f"Highest **{col}**: **{values.max():,.2f}**"
+                answer_text = (
+                    f"Highest **{col}**: **{values.max():,.2f}**"
+                )
+
             elif "lowest" in q or "minimum" in q:
-                answer_text = f"Lowest **{col}**: **{values.min():,.2f}**"
+                answer_text = (
+                    f"Lowest **{col}**: **{values.min():,.2f}**"
+                )
+
             elif "total" in q or "sum" in q:
-                answer_text = f"Total **{col}**: **{values.sum():,.2f}**"
+                answer_text = (
+                    f"Total **{col}**: **{values.sum():,.2f}**"
+                )
+
             elif "average" in q or "mean" in q:
-                answer_text = f"Average **{col}**: **{values.mean():,.2f}**"
+                answer_text = (
+                    f"Average **{col}**: **{values.mean():,.2f}**"
+                )
+
             elif "median" in q:
-                answer_text = f"Median **{col}**: **{values.median():,.2f}**"
+                answer_text = (
+                    f"Median **{col}**: **{values.median():,.2f}**"
+                )
+
             else:
                 result_data = (
                     values.describe()
@@ -484,10 +465,11 @@ if analyze and question.strip():
                     .to_frame()
                 )
                 result_kind = "table"
+
         else:
             info_text = "Please include a numeric column name."
 
-    # Categorical-column questions
+    # Most common categorical values
     elif any(word in q for word in [
         "most common", "common values", "frequency"
     ]):
@@ -507,10 +489,9 @@ if analyze and question.strip():
 
     else:
         info_text = (
-            "I couldn't identify that question yet. Try one of the suggested "
-            "questions, or ask about a column's statistics, total, average, "
-            "highest or lowest value, missing values, common values, "
-            "correlation, or averages grouped by category."
+            "Try a suggested question or ask about statistics, highest "
+            "or lowest values, totals, averages, missing values, "
+            "common values, or correlation."
         )
 
     # ---------- DISPLAY ANSWER ----------
@@ -530,12 +511,15 @@ if analyze and question.strip():
             "Missing Percentage": (
                 data.isna().mean().values * 100
             ).round(2)
-        }).sort_values("Missing Count", ascending=False)
+        }).sort_values(
+            "Missing Count",
+            ascending=False
+        )
 
         st.write(
-            f"Total missing cells: "
-            f"**{int(data.isna().sum().sum()):,}**"
+            f"Total missing cells: **{int(data.isna().sum().sum()):,}**"
         )
+
         st.dataframe(
             report,
             use_container_width=True,
@@ -543,7 +527,7 @@ if analyze and question.strip():
             hide_index=True
         )
 
-    elif result_kind == "table":
+    elif result_kind == "table" and result_data is not None:
         st.dataframe(
             result_data,
             use_container_width=True,
