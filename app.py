@@ -458,13 +458,34 @@ if analyze and question.strip():
                 )
 
             else:
-                result_data = (
-                    values.describe()
-                    .round(2)
-                    .rename("Value")
-                    .to_frame()
-                )
+
+                stats = values.describe().round(2)
+                
+                result_data = pd.DataFrame({
+                    "Statistic": [
+                        "Count",
+                        "Average (Mean)",
+                        "Standard Deviation",
+                        "Minimum",
+                        "25th Percentile",
+                        "Median (50th Percentile)",
+                        "75th Percentile",
+                        "Maximum"
+                    ],
+                    "Value": [
+                        stats["count"],
+                        stats["mean"],
+                        stats["std"],
+                        stats["min"],
+                        stats["25%"],
+                        stats["50%"],
+                        stats["75%"],
+                        stats["max"]
+                    ]
+                })
+                
                 result_kind = "table"
+
 
         else:
             info_text = "Please include a numeric column name."
@@ -495,7 +516,7 @@ if analyze and question.strip():
         )
 
     # ---------- DISPLAY ANSWER ----------
-    st.divider()
+ 
     st.subheader("Answer")
 
     if answer_text:
