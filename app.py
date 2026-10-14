@@ -1,3 +1,100 @@
+import re
+
+import matplotlib.pyplot as plt
+import pandas as pd
+import streamlit as st
+
+st.set_page_config(
+    page_title="Data Analysis Agent",
+    page_icon="📊",
+    layout="wide",
+)
+
+st.title("📊 Data Analysis Agent")
+st.caption("Explore your data. Discover patterns. Get insights.")
+
+def descriptive_statistics(df, column):
+    """Calculate descriptive statistics for a numeric column."""
+
+    if column not in df.columns:
+        return None
+
+    values = pd.to_numeric(
+        df[column], errors="coerce"
+    ).dropna()
+
+    if values.empty:
+        return None
+
+    stats = values.describe()
+
+    return pd.DataFrame({
+        "Statistic": [
+            "Count",
+            "Mean",
+            "Standard Deviation",
+            "Minimum",
+            "25th Percentile",
+            "Median",
+            "75th Percentile",
+            "Maximum",
+        ],
+        "Value": [
+            stats["count"],
+            stats["mean"],
+            stats["std"],
+            stats["min"],
+            stats["25%"],
+            stats["50%"],
+            stats["75%"],
+            stats["max"],
+        ],
+    }).round(2)
+
+def missing_value_analysis(df):
+    """Calculate missing counts and percentages per column."""
+
+    report = pd.DataFrame({
+        "Column": df.columns,
+        "Missing Count": df.isna().sum().values,
+        "Missing Percentage": (
+            df.isna().mean().values * 100
+        ).round(2),
+    })
+
+    return report.sort_values(
+        "Missing Count",
+        ascending=False,
+    ).reset_index(drop=True)
+
+def correlation_analysis(df, column_a=None, column_b=None):
+    """Calculate pairwise correlation or a full correlation matrix."""
+
+    numeric_data = df.select_dtypes(include="number")
+
+    if column_a is not None and column_b is not None:
+        if (
+            column_a not in numeric_data.columns
+            or column_b not in numeric_data.columns
+        ):
+            return None
+
+        pair = numeric_data[[column_a, column_b]].dropna()
+
+        if len(pair) < 2:
+            return None
+
+        return float(
+            pair[column_a].corr(pair[column_b])
+        )
+
+    if numeric_data.shape[1] < 2:
+        return None
+
+    return numeric_data.corr().round(3)
+
+def groupby_analysis(
+
 import streamlit as st
 import pandas as pd
 import numpy as np
