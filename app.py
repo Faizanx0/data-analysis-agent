@@ -720,9 +720,10 @@ if analyze and question.strip():
             )
 
     # TOOL 5: Filtering
-    elif any(
+    
+     elif any(
         operator in q
-        for operator in [">", "<", " equals ", " is ", " contains "]
+        for operator in [">=", "<=", ">", "<", " equals ", " is ", " contains "]
     ):
         col, operator, value = parse_filter_question(
             question, data
