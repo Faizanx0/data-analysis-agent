@@ -418,8 +418,8 @@ if analyze and question.strip():
         )
 
     # Check filters before other question types.
-    elif re.search(r">=|<=|>|<", question) or any(
-        term in q for term in [" equals ", " equal to ", " is ", " contains "]
+    elif re.search(r"(>=|<=|>|<)\s*-?\d+(?:\.\d+)?", question) or re.search(
+        r"\b(?:equals?|equal to|contains?)\b", q
     ):
         col, operator, value = parse_filter_question(question, data)
 
