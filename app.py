@@ -158,46 +158,71 @@ def filter_data(df, column, operator, value):
     return None
 
 
+
 def parse_filter_question(question, df):
-    column = find_column(df.columns.tolist(), question)
+    # Split the question into multiple conditions
+    parts = re.split(
+        r"\s*(?:&|\band\b)\s*",
+        question,
+        flags=re.IGNORECASE
+    )
 
-    if column is None:
-        return None, None, None
+    filters = []
 
-    # Match the actual column name, allowing spaces and underscores.
-    column_pattern = re.escape(str(column)).replace(r"\ ", r"[\s_]+")
-    text = question.strip()
+    for part in parts:
+        column = find_column(df.columns.tolist(), part)
 
-    for operator in (">=", "<=", ">", "<"):
+        if column is None:
+            continue
+
+        # Allow spaces and underscores in column names
+        column_pattern = re.escape(str(column))
+        column_pattern = re.sub(
+            r"\\ |_",
+            r"[\\s_]+",
+            column_pattern
+        )
+
+        # Numeric comparisons: >, <, >=, <=
         match = re.search(
-            column_pattern + r"\s*" + re.escape(operator)
-            + r"\s*(-?\d+(?:\.\d+)?)",
-            text,
-            flags=re.IGNORECASE,
+            column_pattern
+            + r"\s*(>=|<=|>|<)\s*(-?\d+(?:\.\d+)?)",
+            part,
+            flags=re.IGNORECASE
         )
 
         if match:
-            return column, operator, match.group(1)
+            filters.append(
+                (column, match.group(1), match.group(2))
+            )
+            continue
 
-    match = re.search(
-        column_pattern + r"\s+(?:equals?|equal to|is)\s+(.+?)\s*$",
-        text,
-        flags=re.IGNORECASE,
-    )
+        # Text contains
+        match = re.search(
+            column_pattern + r"\s+contains?\s+(.+?)\s*$",
+            part,
+            flags=re.IGNORECASE
+        )
 
-    if match:
-        return column, "equals", match.group(1).strip().strip("'\"")
+        if match:
+            value = match.group(1).strip().strip("'\"")
+            filters.append((column, "contains", value))
+            continue
 
-    match = re.search(
-        column_pattern + r"\s+contains?\s+(.+?)\s*$",
-        text,
-        flags=re.IGNORECASE,
-    )
+        # Exact match
+        match = re.search(
+            column_pattern
+            + r"\s+(?:equals?|equal to|is)\s+(.+?)\s*$",
+            part,
+            flags=re.IGNORECASE
+        )
 
-    if match:
-        return column, "contains", match.group(1).strip().strip("'\"")
+        if match:
+            value = match.group(1).strip().strip("'\"")
+            filters.append((column, "equals", value))
 
-    return None, None, None
+    return filters
+
 
 
 with st.sidebar:
@@ -417,27 +442,49 @@ if analyze and question.strip():
             f"This dataset contains **{int(data.duplicated().sum()):,} duplicate rows**."
         )
 
-    # Check filters before other question types.
-    elif re.search(r"(>=|<=|>|<)\s*-?\d+(?:\.\d+)?", question) or re.search(
-        r"\b(?:equals?|equal to|contains?)\b", q
-    ):
-        col, operator, value = parse_filter_question(question, data)
 
-        if col is None or operator is None:
+    # Check filters before other question types.
+    elif re.search(
+        r"(>=|<=|>|<)\s*-?\d+(?:\.\d+)?"
+        r"|\b(?:equals?|equal to|contains?)\b",
+        q,
+    ):
+        filters = parse_filter_question(question, data)
+
+        if not filters:
             info_text = (
-                "I couldn't identify the column and condition. Try "
-                "`Age > 18`, `Region equals West`, or `Product contains phone`."
+                "I couldn't understand the filter. Try "
+                "`Age < 18 & Primary_Platform contains tiktok`."
             )
         else:
-            result_data = filter_data(data, col, operator, value)
+            mask = pd.Series(True, index=data.index)
+            applied_filters = []
 
-            if result_data is None:
-                info_text = "Unable to apply this filter. Check the column and value."
-            else:
+            for col, operator, value in filters:
+                filtered = filter_data(data, col, operator, value)
+
+                if filtered is None:
+                    info_text = (
+                        f"Unable to apply filter on {col}. "
+                        "Check the column and value."
+                    )
+                    break
+
+                # Combine each condition using AND
+                mask &= data.index.isin(filtered.index)
+                applied_filters.append(f"{col} {operator} {value}")
+
+            if info_text is None:
+                result_data = data.loc[mask].copy()
+
                 answer_text = (
-                    f"Found **{len(result_data):,} rows** where "
-                    f"**{col} {operator} {value}**."
+                    f"Found **{len(result_data):,} rows** matching "
+                    + " AND ".join(
+                        f"`{condition}`" for condition in applied_filters
+                    )
+                    + "."
                 )
+
 
     elif "correlation" in q:
         col_a = find_column(numeric_cols, q)
