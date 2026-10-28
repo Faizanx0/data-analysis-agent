@@ -3,8 +3,7 @@
 
 A Python-based tool-using agent for analyzing tabular datasets and CSV files using natural-language questions.
 
-**Live Demo:**
-https://data-analysis-agent-fotc9jjmaromuzh5dbznjz.streamlit.app/
+**Live Demo:** ```https://data-analysis-agent-fotc9jjmaromuzh5dbznjz.streamlit.app/```
 
 ## Features
 
